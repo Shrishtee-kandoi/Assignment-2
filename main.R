@@ -12,14 +12,13 @@
 # https://bioconductor.org/install/
 
 if (!require("BiocManager", quietly = TRUE)){
-
+  install.packages("BiocManager")
 }
 if (!require("biomaRt", quietly = TRUE)){
-
+  BiocManager::install("biomaRt")
 }
-# load tidyverse and your new bioconductor package
-library()
-library()
+suppressPackageStartupMessages(library(biomaRt))
+suppressPackageStartupMessages(library(tidyverse))
 
 #### Loading and processing data ####
 #' Load Expression Data
@@ -36,7 +35,8 @@ library()
 #' @examples 
 #' `data <- load_expression('/project/bf528/project_1/data/example_intensity_data.csv')`
 load_expression <- function(filepath) {
-  return(NULL)
+  tmp_csv <- read.csv(filepath, header = T, sep = " ")
+  return(tibble(tmp_csv))
 }
 
 #' Filter 15% of the gene expression values.
@@ -55,7 +55,19 @@ load_expression <- function(filepath) {
 #' `tibble [40,158 × 1] (S3: tbl_df/tbl/data.frame)`
 #' `$ probeids: chr [1:40158] "1007_s_at" "1053_at" "117_at" "121_at" ...`
 filter_15 <- function(tibble){
-  return()
+  # for each gene, at least 15% of the gene-expression values must be > log2(15)
+  percent_gt <- function(row) {
+    # functions can be defined inside other functions, which can be one style to
+    # make your code more repeatable
+    boolean_row <- row > log2(15)
+    percent_row <- sum(boolean_row)/length(row)
+    return(percent_row)
+  }
+  # there are many ways in R to apply our function to the entire tibble
+  # fastest would be an lapply, but a for loop would work (just slowly)
+  row_pct <- apply(tibble[2:ncol(tibble)], percent_gt, MARGIN = 1) # don't capture first row
+  boolean_rows <- which(row_pct > 0.15)
+  return(tibble[boolean_rows, 1])
 }
 
 #### Gene name conversion ####
@@ -83,7 +95,15 @@ filter_15 <- function(tibble){
 #' `4        1553551_s_at      MT-ND2`
 #' `5           202860_at     DENND4B`
 affy_to_hgnc <- function(affy_vector) {
-  return()
+  affy_vector <- pull(affy_vector)
+  usemart <- useMart(host = 'https://www.ensembl.org',
+                     biomart = 'ENSEMBL_MART_ENSEMBL')
+  ensembl <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+  newNames <- getBM(attributes = c('affy_hg_u133_plus_2', 'hgnc_symbol'), 
+                    filters = c('affy_hg_u133_plus_2'),
+                    values = affy_vector, 
+                    mart = ensembl)
+  return(as_tibble(newNames))
 }
 
 #### ggplot ####
@@ -118,7 +138,15 @@ affy_to_hgnc <- function(affy_vector) {
 #' `1 202860_at   DENND4B good        7.16      ...`
 #' `2 204340_at   TMEM187 good        6.40      ...`
 reduce_data <- function(expr_tibble, names_ids, good_genes, bad_genes){
-  return()
+  expr_tibble <- add_column(expr_tibble, 
+                            .after = "probeids",
+                            names_ids[match(expr_tibble$probeids,
+                                            names_ids$affy_hg_u133_plus_2), 2])
+  good_tib <- expr_tibble[which(expr_tibble$hgnc_symbol %in% good_genes),]
+  good_tib <- add_column(good_tib, .after = "hgnc_symbol", gene_set = "good")
+  bad_tib <- expr_tibble[which(expr_tibble$hgnc_symbol %in% bad_genes),]
+  bad_tib <- add_column(bad_tib, .after = "hgnc_symbol", gene_set = "bad")
+  return(rbind(good_tib, bad_tib))
 }
 
 #' Plot a boxplot of good and bad genes.
@@ -134,6 +162,19 @@ reduce_data <- function(expr_tibble, names_ids, good_genes, bad_genes){
 #'
 #' @examples `p <- plot_ggplot(plot_tibble)`
 plot_ggplot <- function(tibble) {
-  return()
+  tibble %>% pivot_longer(starts_with('GSM'), names_to = 'sample') -> tibble
+  tibble$hgnc_symbol <- factor(tibble$hgnc_symbol,
+                               levels = unique(tibble$hgnc_symbol), 
+                               ordered = TRUE)
+  p <- ggplot(tibble, aes(x=hgnc_symbol, y=value)) +
+    geom_boxplot(aes(fill = gene_set)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 50, vjust = 0.5), 
+          legend.position = "top") +
+    scale_fill_manual(values = c("#DF2935", "#71B48D")) +
+    ggtitle("GENE EXPRESSION LEVELS OF 16 GENES") +
+    theme(plot.title = element_text(hjust=0.5))+
+    xlab("Genes") +
+    ylab("Expression levels")
+  return(p)
 }
-
