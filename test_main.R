@@ -59,3 +59,4 @@ test_that("plot_ggplot() correctly creates a boxplot from sample data", {
   p <- plot_ggplot(plot_tib)
   expect_equal(class(p$layers[[1]]$geom)[1], "GeomBoxplot")
 })
+
